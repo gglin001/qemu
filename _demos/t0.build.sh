@@ -1,0 +1,22 @@
+./configure -h >_demos/configure.h.log
+
+##############################################################################
+
+mkdir -p build && pushd build
+
+args=(
+  --cc=/usr/bin/clang
+  --cxx=/usr/bin/clang++
+  # --target-list="riscv64-linux-user riscv64-softmmu"
+  --target-list="riscv64-linux-user riscv64-softmmu aarch64-linux-user aarch64-softmmu"
+  --prefix=$PWD/install
+  --enable-debug
+)
+../configure "${args[@]}"
+
+make -j$(nproc)
+# make install
+
+popd
+
+###############################################################################
