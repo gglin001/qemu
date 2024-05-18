@@ -7,6 +7,8 @@ mkdir -p build && pushd build
 args=(
   --cc=/usr/bin/clang
   --cxx=/usr/bin/clang++
+  --python=$(which python)
+  --ninja=$(which ninja)
   # --target-list="riscv64-linux-user riscv64-softmmu"
   --target-list="riscv64-linux-user riscv64-softmmu aarch64-linux-user aarch64-softmmu"
   --prefix=$PWD/install
