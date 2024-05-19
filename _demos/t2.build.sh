@@ -13,6 +13,7 @@ args=(
   --target-list="riscv64-linux-user riscv64-softmmu aarch64-linux-user aarch64-softmmu"
   --prefix=$PWD/install
   --enable-debug
+  --extra-cflags="-O0 -g"
 )
 ../configure "${args[@]}"
 
