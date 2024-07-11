@@ -48,6 +48,8 @@ static void clock_mux_update(RccClockMuxState *mux, bool bypass_source)
     uint64_t src_freq;
     Clock *current_source = mux->srcs[mux->src];
     uint32_t freq_multiplier = 0;
+    bool clk_changed = false;
+
     /*
      * To avoid rounding errors, we use the clock period instead of the
      * frequency.
@@ -59,8 +61,11 @@ static void clock_mux_update(RccClockMuxState *mux, bool bypass_source)
         freq_multiplier = mux->divider;
     }
 
-    clock_set_mul_div(mux->out, freq_multiplier, mux->multiplier);
-    clock_update(mux->out, clock_get(current_source));
+    clk_changed |= clock_set_mul_div(mux->out, freq_multiplier, mux->multiplier);
+    clk_changed |= clock_set(mux->out, clock_get(current_source));
+    if (clk_changed) {
+        clock_propagate(mux->out);
+    }
 
     src_freq = clock_get_hz(current_source);
     /* TODO: can we simply detect if the config changed so that we reduce log spam ? */
@@ -108,13 +113,13 @@ static void clock_mux_reset_enter(Object *obj, ResetType type)
     set_clock_mux_init_info(s, s->id);
 }
 
-static void clock_mux_reset_hold(Object *obj)
+static void clock_mux_reset_hold(Object *obj, ResetType type)
 {
     RccClockMuxState *s = RCC_CLOCK_MUX(obj);
     clock_mux_update(s, true);
 }
 
-static void clock_mux_reset_exit(Object *obj)
+static void clock_mux_reset_exit(Object *obj, ResetType type)
 {
     RccClockMuxState *s = RCC_CLOCK_MUX(obj);
     clock_mux_update(s, false);
@@ -258,13 +263,13 @@ static void pll_reset_enter(Object *obj, ResetType type)
     set_pll_init_info(s, s->id);
 }
 
-static void pll_reset_hold(Object *obj)
+static void pll_reset_hold(Object *obj, ResetType type)
 {
     RccPllState *s = RCC_PLL(obj);
     pll_update(s, true);
 }
 
-static void pll_reset_exit(Object *obj)
+static void pll_reset_exit(Object *obj, ResetType type)
 {
     RccPllState *s = RCC_PLL(obj);
     pll_update(s, false);
@@ -902,7 +907,7 @@ static void rcc_update_csr(Stm32l4x5RccState *s)
     rcc_update_irq(s);
 }
 
-static void stm32l4x5_rcc_reset_hold(Object *obj)
+static void stm32l4x5_rcc_reset_hold(Object *obj, ResetType type)
 {
     Stm32l4x5RccState *s = STM32L4X5_RCC(obj);
     s->cr = 0x00000063;

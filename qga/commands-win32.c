@@ -217,6 +217,9 @@ int64_t qmp_guest_file_open(const char *path, const char *mode, Error **errp)
 
     w_path = g_utf8_to_utf16(path, -1, NULL, NULL, &gerr);
     if (!w_path) {
+        error_setg(errp, "can't convert 'path' to UTF-16: %s",
+                   gerr->message);
+        g_error_free(gerr);
         goto done;
     }
 
@@ -244,10 +247,6 @@ int64_t qmp_guest_file_open(const char *path, const char *mode, Error **errp)
     slog("guest-file-open, handle: % " PRId64, fd);
 
 done:
-    if (gerr) {
-        error_setg(errp, QERR_QGA_COMMAND_FAILED, gerr->message);
-        g_error_free(gerr);
-    }
     g_free(w_path);
     return fd;
 }
@@ -279,8 +278,7 @@ static void acquire_privilege(const char *name, Error **errp)
         TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token))
     {
         if (!LookupPrivilegeValue(NULL, name, &priv.Privileges[0].Luid)) {
-            error_setg(errp, QERR_QGA_COMMAND_FAILED,
-                       "no luid for requested privilege");
+            error_setg(errp, "no luid for requested privilege");
             goto out;
         }
 
@@ -288,14 +286,12 @@ static void acquire_privilege(const char *name, Error **errp)
         priv.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 
         if (!AdjustTokenPrivileges(token, FALSE, &priv, 0, NULL, 0)) {
-            error_setg(errp, QERR_QGA_COMMAND_FAILED,
-                       "unable to acquire requested privilege");
+            error_setg(errp, "unable to acquire requested privilege");
             goto out;
         }
 
     } else {
-        error_setg(errp, QERR_QGA_COMMAND_FAILED,
-                   "failed to open privilege token");
+        error_setg(errp, "failed to open privilege token");
     }
 
 out:
@@ -309,8 +305,7 @@ static void execute_async(DWORD WINAPI (*func)(LPVOID), LPVOID opaque,
 {
     HANDLE thread = CreateThread(NULL, 0, func, opaque, 0, NULL);
     if (!thread) {
-        error_setg(errp, QERR_QGA_COMMAND_FAILED,
-                   "failed to dispatch asynchronous command");
+        error_setg(errp, "failed to dispatch asynchronous command");
     }
 }
 
@@ -1143,6 +1138,7 @@ static GuestFilesystemInfo *build_guest_fsinfo(char *guid, Error **errp)
     fs = g_malloc(sizeof(*fs));
     fs->name = g_strdup(guid);
     fs->has_total_bytes = false;
+    fs->has_total_bytes_privileged = false;
     fs->has_used_bytes = false;
     if (len == 0) {
         fs->mountpoint = g_strdup("System Reserved");
@@ -1418,22 +1414,19 @@ static void check_suspend_mode(GuestSuspendMode mode, Error **errp)
 
     ZeroMemory(&sys_pwr_caps, sizeof(sys_pwr_caps));
     if (!GetPwrCapabilities(&sys_pwr_caps)) {
-        error_setg(errp, QERR_QGA_COMMAND_FAILED,
-                   "failed to determine guest suspend capabilities");
+        error_setg(errp, "failed to determine guest suspend capabilities");
         return;
     }
 
     switch (mode) {
     case GUEST_SUSPEND_MODE_DISK:
         if (!sys_pwr_caps.SystemS4) {
-            error_setg(errp, QERR_QGA_COMMAND_FAILED,
-                       "suspend-to-disk not supported by OS");
+            error_setg(errp, "suspend-to-disk not supported by OS");
         }
         break;
     case GUEST_SUSPEND_MODE_RAM:
         if (!sys_pwr_caps.SystemS3) {
-            error_setg(errp, QERR_QGA_COMMAND_FAILED,
-                       "suspend-to-ram not supported by OS");
+            error_setg(errp, "suspend-to-ram not supported by OS");
         }
         break;
     default:
@@ -1945,11 +1938,17 @@ void qmp_guest_set_user_password(const char *username,
 
     user = g_utf8_to_utf16(username, -1, NULL, NULL, &gerr);
     if (!user) {
+        error_setg(errp, "can't convert 'username' to UTF-16: %s",
+                   gerr->message);
+        g_error_free(gerr);
         goto done;
     }
 
     wpass = g_utf8_to_utf16(rawpasswddata, -1, NULL, NULL, &gerr);
     if (!wpass) {
+        error_setg(errp, "can't convert 'password' to UTF-16: %s",
+                   gerr->message);
+        g_error_free(gerr);
         goto done;
     }
 
@@ -1965,10 +1964,6 @@ void qmp_guest_set_user_password(const char *username,
     }
 
 done:
-    if (gerr) {
-        error_setg(errp, QERR_QGA_COMMAND_FAILED, gerr->message);
-        g_error_free(gerr);
-    }
     g_free(user);
     g_free(wpass);
     g_free(rawpasswddata);
@@ -2120,49 +2115,47 @@ GuestUserList *qmp_guest_get_users(Error **errp)
 typedef struct _ga_matrix_lookup_t {
     int major;
     int minor;
-    char const *version;
-    char const *version_id;
+    const char *version;
+    const char *version_id;
 } ga_matrix_lookup_t;
 
-static ga_matrix_lookup_t const WIN_VERSION_MATRIX[2][7] = {
-    {
-        /* Desktop editions */
-        { 5, 0, "Microsoft Windows 2000",   "2000"},
-        { 5, 1, "Microsoft Windows XP",     "xp"},
-        { 6, 0, "Microsoft Windows Vista",  "vista"},
-        { 6, 1, "Microsoft Windows 7"       "7"},
-        { 6, 2, "Microsoft Windows 8",      "8"},
-        { 6, 3, "Microsoft Windows 8.1",    "8.1"},
-        { 0, 0, 0}
-    },{
-        /* Server editions */
-        { 5, 2, "Microsoft Windows Server 2003",        "2003"},
-        { 6, 0, "Microsoft Windows Server 2008",        "2008"},
-        { 6, 1, "Microsoft Windows Server 2008 R2",     "2008r2"},
-        { 6, 2, "Microsoft Windows Server 2012",        "2012"},
-        { 6, 3, "Microsoft Windows Server 2012 R2",     "2012r2"},
-        { 0, 0, 0},
-        { 0, 0, 0}
-    }
+static const ga_matrix_lookup_t WIN_CLIENT_VERSION_MATRIX[] = {
+    { 5, 0, "Microsoft Windows 2000",   "2000"},
+    { 5, 1, "Microsoft Windows XP",     "xp"},
+    { 6, 0, "Microsoft Windows Vista",  "vista"},
+    { 6, 1, "Microsoft Windows 7"       "7"},
+    { 6, 2, "Microsoft Windows 8",      "8"},
+    { 6, 3, "Microsoft Windows 8.1",    "8.1"},
+    { }
+};
+
+static const ga_matrix_lookup_t WIN_SERVER_VERSION_MATRIX[] = {
+    { 5, 2, "Microsoft Windows Server 2003",        "2003"},
+    { 6, 0, "Microsoft Windows Server 2008",        "2008"},
+    { 6, 1, "Microsoft Windows Server 2008 R2",     "2008r2"},
+    { 6, 2, "Microsoft Windows Server 2012",        "2012"},
+    { 6, 3, "Microsoft Windows Server 2012 R2",     "2012r2"},
+    { },
 };
 
 typedef struct _ga_win_10_0_t {
     int first_build;
-    char const *version;
-    char const *version_id;
+    const char *version;
+    const char *version_id;
 } ga_win_10_0_t;
 
-static ga_win_10_0_t const WIN_10_0_SERVER_VERSION_MATRIX[4] = {
+static const ga_win_10_0_t WIN_10_0_SERVER_VERSION_MATRIX[] = {
     {14393, "Microsoft Windows Server 2016",    "2016"},
     {17763, "Microsoft Windows Server 2019",    "2019"},
     {20344, "Microsoft Windows Server 2022",    "2022"},
-    {0, 0}
+    {26040, "MIcrosoft Windows Server 2025",    "2025"},
+    { }
 };
 
-static ga_win_10_0_t const WIN_10_0_CLIENT_VERSION_MATRIX[3] = {
+static const ga_win_10_0_t WIN_10_0_CLIENT_VERSION_MATRIX[] = {
     {10240, "Microsoft Windows 10",    "10"},
     {22000, "Microsoft Windows 11",    "11"},
-    {0, 0}
+    { }
 };
 
 static void ga_get_win_version(RTL_OSVERSIONINFOEXW *info, Error **errp)
@@ -2175,8 +2168,7 @@ static void ga_get_win_version(RTL_OSVERSIONINFOEXW *info, Error **errp)
     HMODULE module = GetModuleHandle("ntdll");
     PVOID fun = GetProcAddress(module, "RtlGetVersion");
     if (fun == NULL) {
-        error_setg(errp, QERR_QGA_COMMAND_FAILED,
-            "Failed to get address of RtlGetVersion");
+        error_setg(errp, "Failed to get address of RtlGetVersion");
         return;
     }
 
@@ -2185,16 +2177,17 @@ static void ga_get_win_version(RTL_OSVERSIONINFOEXW *info, Error **errp)
     return;
 }
 
-static char *ga_get_win_name(OSVERSIONINFOEXW const *os_version, bool id)
+static char *ga_get_win_name(const OSVERSIONINFOEXW *os_version, bool id)
 {
     DWORD major = os_version->dwMajorVersion;
     DWORD minor = os_version->dwMinorVersion;
     DWORD build = os_version->dwBuildNumber;
     int tbl_idx = (os_version->wProductType != VER_NT_WORKSTATION);
-    ga_matrix_lookup_t const *table = WIN_VERSION_MATRIX[tbl_idx];
-    ga_win_10_0_t const *win_10_0_table = tbl_idx ?
+    const ga_matrix_lookup_t *table = tbl_idx ?
+        WIN_SERVER_VERSION_MATRIX : WIN_CLIENT_VERSION_MATRIX;
+    const ga_win_10_0_t *win_10_0_table = tbl_idx ?
         WIN_10_0_SERVER_VERSION_MATRIX : WIN_10_0_CLIENT_VERSION_MATRIX;
-    ga_win_10_0_t const *win_10_0_version = NULL;
+    const ga_win_10_0_t *win_10_0_version = NULL;
     while (table->version != NULL) {
         if (major == 10 && minor == 0) {
             while (win_10_0_table->version != NULL) {

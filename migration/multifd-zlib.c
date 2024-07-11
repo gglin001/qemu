@@ -70,12 +70,16 @@ static int zlib_send_setup(MultiFDSendParams *p, Error **errp)
         goto err_free_zbuff;
     }
     p->compress_data = z;
+
+    /* Needs 2 IOVs, one for packet header and one for compressed data */
+    p->iov = g_new0(struct iovec, 2);
+
     return 0;
 
 err_free_zbuff:
     g_free(z->zbuff);
 err_deflate_end:
-    deflateEnd(&z->zs);
+    deflateEnd(zs);
 err_free_z:
     g_free(z);
     error_setg(errp, "multifd %u: %s", p->id, err_msg);
@@ -101,6 +105,9 @@ static void zlib_send_cleanup(MultiFDSendParams *p, Error **errp)
     z->buf = NULL;
     g_free(p->compress_data);
     p->compress_data = NULL;
+
+    g_free(p->iov);
+    p->iov = NULL;
 }
 
 /**
@@ -123,13 +130,15 @@ static int zlib_send_prepare(MultiFDSendParams *p, Error **errp)
     int ret;
     uint32_t i;
 
-    multifd_send_prepare_header(p);
+    if (!multifd_send_prepare_common(p)) {
+        goto out;
+    }
 
-    for (i = 0; i < pages->num; i++) {
+    for (i = 0; i < pages->normal_num; i++) {
         uint32_t available = z->zbuff_len - out_size;
         int flush = Z_NO_FLUSH;
 
-        if (i == pages->num - 1) {
+        if (i == pages->normal_num - 1) {
             flush = Z_SYNC_FLUSH;
         }
 
@@ -172,10 +181,10 @@ static int zlib_send_prepare(MultiFDSendParams *p, Error **errp)
     p->iov[p->iovs_num].iov_len = out_size;
     p->iovs_num++;
     p->next_packet_size = out_size;
+
+out:
     p->flags |= MULTIFD_FLAG_ZLIB;
-
     multifd_send_fill_packet(p);
-
     return 0;
 }
 
@@ -261,6 +270,14 @@ static int zlib_recv(MultiFDRecvParams *p, Error **errp)
                    p->id, flags, MULTIFD_FLAG_ZLIB);
         return -1;
     }
+
+    multifd_recv_zero_page_process(p);
+
+    if (!p->normal_num) {
+        assert(in_size == 0);
+        return 0;
+    }
+
     ret = qio_channel_read_all(p->c, (void *)z->zbuff, in_size, errp);
 
     if (ret != 0) {
@@ -274,6 +291,7 @@ static int zlib_recv(MultiFDRecvParams *p, Error **errp)
         int flush = Z_NO_FLUSH;
         unsigned long start = zs->total_out;
 
+        ramblock_recv_bitmap_set_offset(p->block, p->normal[i]);
         if (i == p->normal_num - 1) {
             flush = Z_SYNC_FLUSH;
         }
@@ -310,6 +328,7 @@ static int zlib_recv(MultiFDRecvParams *p, Error **errp)
                    p->id, out_size, expected_size);
         return -1;
     }
+
     return 0;
 }
 

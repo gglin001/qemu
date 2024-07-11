@@ -167,9 +167,9 @@ static gint cmp_exec_count(gconstpointer a, gconstpointer b)
 static void free_record(gpointer data)
 {
     InsnExecCount *rec = (InsnExecCount *) data;
+    qemu_plugin_scoreboard_free(rec->count.score);
     g_free(rec->insn);
     g_free(rec);
-    qemu_plugin_scoreboard_free(rec->count.score);
 }
 
 static void plugin_exit(qemu_plugin_id_t id, void *p)
@@ -252,7 +252,7 @@ static struct qemu_plugin_scoreboard *find_counter(
 {
     int i;
     uint64_t *cnt = NULL;
-    uint32_t opcode;
+    uint32_t opcode = 0;
     InsnClassExecCount *class = NULL;
 
     /*
@@ -261,7 +261,7 @@ static struct qemu_plugin_scoreboard *find_counter(
      * They would probably benefit from a more tailored plugin.
      * However we can fall back to individual instruction counting.
      */
-    opcode = *((uint32_t *)qemu_plugin_insn_data(insn));
+    qemu_plugin_insn_data(insn, &opcode, sizeof(opcode));
 
     for (i = 0; !cnt && i < class_table_sz; i++) {
         class = &class_table[i];

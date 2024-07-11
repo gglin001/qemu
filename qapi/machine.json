@@ -24,16 +24,16 @@
 #
 # @avr: since 5.1
 #
-# Notes: The resulting QMP strings can be appended to the
-#     "qemu-system-" prefix to produce the corresponding QEMU
-#     executable name.  This is true even for "qemu-system-x86_64".
+# .. note:: The resulting QMP strings can be appended to the
+#    "qemu-system-" prefix to produce the corresponding QEMU executable
+#    name.  This is true even for "qemu-system-x86_64".
 #
 # Since: 3.0
 ##
 { 'enum' : 'SysEmuTarget',
   'data' : [ 'aarch64', 'alpha', 'arm', 'avr', 'cris', 'hppa', 'i386',
              'loongarch64', 'm68k', 'microblaze', 'microblazeel', 'mips', 'mips64',
-             'mips64el', 'mipsel', 'nios2', 'or1k', 'ppc',
+             'mips64el', 'mipsel', 'or1k', 'ppc',
              'ppc64', 'riscv32', 'riscv64', 'rx', 's390x', 'sh4',
              'sh4eb', 'sparc', 'sparc64', 'tricore',
              'x86_64', 'xtensa', 'xtensaeb' ] }
@@ -136,6 +136,26 @@
 { 'command': 'query-cpus-fast', 'returns': [ 'CpuInfoFast' ] }
 
 ##
+# @CompatProperty:
+#
+# Property default values specific to a machine type, for use by
+# scripts/compare-machine-types.
+#
+# @qom-type: name of the QOM type to which the default applies
+#
+# @property: name of its property to which the default applies
+#
+# @value: the default value (machine-specific default can overwrite
+#     the "default" default, to avoid this use -machine none)
+#
+# Since: 9.1
+##
+{ 'struct': 'CompatProperty',
+  'data': { 'qom-type': 'str',
+            'property': 'str',
+            'value': 'str' } }
+
+##
 # @MachineInfo:
 #
 # Information describing a machine.
@@ -166,6 +186,14 @@
 #
 # @acpi: machine type supports ACPI (since 8.0)
 #
+# @compat-props: The machine type's compatibility properties.  Only
+#     present when query-machines argument @compat-props is true.
+#     (since 9.1)
+#
+# Features:
+#
+# @unstable: Member @compat-props is experimental.
+#
 # Since: 1.2
 ##
 { 'struct': 'MachineInfo',
@@ -173,18 +201,53 @@
             '*is-default': 'bool', 'cpu-max': 'int',
             'hotpluggable-cpus': 'bool',  'numa-mem-supported': 'bool',
             'deprecated': 'bool', '*default-cpu-type': 'str',
-            '*default-ram-id': 'str', 'acpi': 'bool' } }
+            '*default-ram-id': 'str', 'acpi': 'bool',
+            '*compat-props': { 'type': ['CompatProperty'],
+                               'features': ['unstable'] } } }
 
 ##
 # @query-machines:
 #
 # Return a list of supported machines
 #
+# @compat-props: if true, also return compatibility properties.
+#     (default: false) (since 9.1)
+#
+# Features:
+#
+# @unstable: Argument @compat-props is experimental.
+#
 # Returns: a list of MachineInfo
 #
 # Since: 1.2
+#
+# Example:
+#
+#     -> { "execute": "query-machines", "arguments": { "compat-props": true } }
+#     <- { "return": [
+#               {
+#                  "hotpluggable-cpus": true,
+#                  "name": "pc-q35-6.2",
+#                  "compat-props": [
+#                       {
+#                          "qom-type": "virtio-mem",
+#                          "property": "unplugged-inaccessible",
+#                          "value": "off"
+#                       }
+#                   ],
+#                   "numa-mem-supported": false,
+#                   "default-cpu-type": "qemu64-x86_64-cpu",
+#                   "cpu-max": 288,
+#                   "deprecated": false,
+#                   "default-ram-id": "pc.ram"
+#               },
+#               ...
+#        }
 ##
-{ 'command': 'query-machines', 'returns': ['MachineInfo'] }
+{ 'command': 'query-machines',
+  'data': { '*compat-props': { 'type': 'bool',
+                               'features': [ 'unstable' ] } },
+  'returns': ['MachineInfo'] }
 
 ##
 # @CurrentMachineParams:
@@ -242,8 +305,9 @@
 #
 # Since: 0.14
 #
-# Notes: If no UUID was specified for the guest, a null UUID is
-#     returned.
+# .. note:: If no UUID was specified for the guest, a null UUID is
+#    returned.
+#
 ##
 { 'struct': 'UuidInfo', 'data': {'UUID': 'str'} }
 
@@ -304,10 +368,10 @@
 #
 # Since: 0.14
 #
-# Notes: A guest may or may not respond to this command.  This command
-#     returning does not indicate that a guest has accepted the
-#     request or that it has shut down.  Many guests will respond to
-#     this command by prompting the user in some way.
+# .. note:: A guest may or may not respond to this command.  This
+#    command returning does not indicate that a guest has accepted the
+#    request or that it has shut down.  Many guests will respond to this
+#    command by prompting the user in some way.
 #
 # Example:
 #
@@ -326,8 +390,8 @@
 #
 # Since: 1.1
 #
-# Note: prior to 4.0, this command does nothing in case the guest
-#     isn't suspended.
+# .. note:: Prior to 4.0, this command does nothing in case the guest
+#    isn't suspended.
 #
 # Example:
 #
@@ -377,8 +441,8 @@
 #
 # Since: 0.14
 #
-# Note: prior to 2.1, this command was only supported for x86 and s390
-#     VMs
+# .. note:: Prior to 2.1, this command was only supported for x86 and
+#    s390 VMs.
 #
 # Example:
 #
@@ -776,7 +840,7 @@
 #
 # Since: 0.14
 #
-# Notes: Errors were not reliably returned until 1.1
+# .. caution:: Errors were not reliably returned until 1.1.
 #
 # Example:
 #
@@ -802,7 +866,7 @@
 #
 # Since: 0.14
 #
-# Notes: Errors were not reliably returned until 1.1
+# .. caution:: Errors were not reliably returned until 1.1.
 #
 # Example:
 #
@@ -920,18 +984,20 @@
 # @socket-id: socket number within parent container the CPU belongs to
 #
 # @die-id: die number within the parent container the CPU belongs to
-#    (since 4.1)
+#     (since 4.1)
 #
 # @cluster-id: cluster number within the parent container the CPU
 #     belongs to (since 7.1)
 #
-# @core-id: core number within the parent container the CPU
-#     belongs to
+# @module-id: module number within the parent container the CPU belongs
+#     to (since 9.1)
+#
+# @core-id: core number within the parent container the CPU belongs to
 #
 # @thread-id: thread number within the core the CPU  belongs to
 #
-# Note: management should be prepared to pass through additional
-#     properties with device_add.
+# .. note:: Management should be prepared to pass through additional
+#    properties with device_add.
 #
 # Since: 2.7
 ##
@@ -943,6 +1009,7 @@
             '*socket-id': 'int',
             '*die-id': 'int',
             '*cluster-id': 'int',
+            '*module-id': 'int',
             '*core-id': 'int',
             '*thread-id': 'int'
   }
@@ -982,8 +1049,8 @@
 #
 # Examples:
 #
-#     For pseries machine type started with -smp 2,cores=2,maxcpus=4 -cpu
-#     POWER8:
+#     For pseries machine type started with -smp 2,cores=2,maxcpus=4
+#     -cpu POWER8:
 #
 #     -> { "execute": "query-hotpluggable-cpus" }
 #     <- {"return": [
@@ -991,7 +1058,7 @@
 #            "vcpus-count": 1 },
 #          { "props": { "core-id": 0 }, "type": "POWER8-spapr-cpu-core",
 #            "vcpus-count": 1, "qom-path": "/machine/unattached/device[0]"}
-#        ]}'
+#        ]}
 #
 #     For pc machine type started with -smp 1,maxcpus=2:
 #
@@ -1008,8 +1075,8 @@
 #          }
 #        ]}
 #
-#     For s390x-virtio-ccw machine type started with -smp 1,maxcpus=2 -cpu
-#     qemu (Since: 2.11):
+#     For s390x-virtio-ccw machine type started with -smp 1,maxcpus=2
+#     -cpu qemu (Since: 2.11):
 #
 #     -> { "execute": "query-hotpluggable-cpus" }
 #     <- {"return": [
@@ -1057,9 +1124,9 @@
 #       the KVM kernel module cannot support it, KVMMissingCap
 #     - If no balloon device is present, DeviceNotActive
 #
-# Notes: This command just issues a request to the guest.  When it
-#     returns, the balloon size may not have changed.  A guest can
-#     change the balloon size independent of this command.
+# .. note:: This command just issues a request to the guest.  When it
+#    returns, the balloon size may not have changed.  A guest can change
+#    the balloon size independent of this command.
 #
 # Since: 0.14
 #
@@ -1119,7 +1186,7 @@
 # @actual: the logical size of the VM in bytes Formula used:
 #     logical_vm_size = vm_ram_size - balloon_size
 #
-# Note: this event is rate-limited.
+# .. note:: This event is rate-limited.
 #
 # Since: 1.2
 #
@@ -1152,8 +1219,8 @@
 ##
 # @query-hv-balloon-status-report:
 #
-# Returns the hv-balloon driver data contained in the last received "STATUS"
-# message from the guest.
+# Returns the hv-balloon driver data contained in the last received
+# "STATUS" message from the guest.
 #
 # Returns:
 #     @HvBalloonInfo
@@ -1182,7 +1249,7 @@
 # Emitted when the hv-balloon driver receives a "STATUS" message from
 # the guest.
 #
-# Note: this event is rate-limited.
+# .. note:: This event is rate-limited.
 #
 # Since: 8.2
 #
@@ -1191,7 +1258,6 @@
 #     <- { "event": "HV_BALLOON_STATUS_REPORT",
 #          "data": { "committed": 816640000, "available": 3333054464 },
 #          "timestamp": { "seconds": 1600295492, "microseconds": 661044 } }
-#
 ##
 { 'event': 'HV_BALLOON_STATUS_REPORT',
   'data': 'HvBalloonInfo' }
@@ -1528,7 +1594,7 @@
 #
 # @qom-path: path to the device object in the QOM tree (since 6.2)
 #
-# Note: this event is rate-limited.
+# .. note:: This event is rate-limited.
 #
 # Since: 5.1
 #
@@ -1541,34 +1607,6 @@
 ##
 { 'event': 'MEMORY_DEVICE_SIZE_CHANGE',
   'data': { '*id': 'str', 'size': 'size', 'qom-path' : 'str'} }
-
-##
-# @MEM_UNPLUG_ERROR:
-#
-# Emitted when memory hot unplug error occurs.
-#
-# @device: device name
-#
-# @msg: Informative message
-#
-# Features:
-#
-# @deprecated: This event is deprecated.  Use
-#     @DEVICE_UNPLUG_GUEST_ERROR instead.
-#
-# Since: 2.4
-#
-# Example:
-#
-#     <- { "event": "MEM_UNPLUG_ERROR",
-#          "data": { "device": "dimm1",
-#                    "msg": "acpi: device unplug for unsupported device"
-#          },
-#          "timestamp": { "seconds": 1265044230, "microseconds": 450486 } }
-##
-{ 'event': 'MEM_UNPLUG_ERROR',
-  'data': { 'device': 'str', 'msg': 'str' },
-  'features': ['deprecated'] }
 
 ##
 # @BootConfiguration:
@@ -1635,6 +1673,8 @@
 #
 # @clusters: number of clusters per parent container (since 7.0)
 #
+# @modules: number of modules per parent container (since 9.1)
+#
 # @cores: number of cores per parent container
 #
 # @threads: number of threads per core
@@ -1648,6 +1688,7 @@
      '*sockets': 'int',
      '*dies': 'int',
      '*clusters': 'int',
+     '*modules': 'int',
      '*cores': 'int',
      '*threads': 'int',
      '*maxcpus': 'int' } }
@@ -1740,23 +1781,6 @@
   'features': [ 'unstable' ] }
 
 ##
-# @x-query-rdma:
-#
-# Query RDMA state
-#
-# Features:
-#
-# @unstable: This command is meant for debugging.
-#
-# Returns: RDMA state
-#
-# Since: 6.2
-##
-{ 'command': 'x-query-rdma',
-  'returns': 'HumanReadableText',
-  'features': [ 'unstable' ] }
-
-##
 # @x-query-roms:
 #
 # Query information on the registered ROMS
@@ -1797,10 +1821,13 @@
 #
 # @64: SMBIOS version 3.0 (64-bit) Entry Point
 #
+# @auto: Either 2.x or 3.x SMBIOS version, 2.x if configuration can be
+#     described by it and 3.x otherwise (since: 9.0)
+#
 # Since: 7.0
 ##
 { 'enum': 'SmbiosEntryPointType',
-  'data': [ '32', '64' ] }
+  'data': [ '32', '64', 'auto' ] }
 
 ##
 # @MemorySizeConfiguration:
@@ -1838,3 +1865,20 @@
 { 'command': 'dumpdtb',
   'data': { 'filename': 'str' },
   'if': 'CONFIG_FDT' }
+
+##
+# @x-query-interrupt-controllers:
+#
+# Query information on interrupt controller devices
+#
+# Features:
+#
+# @unstable: This command is meant for debugging.
+#
+# Returns: Interrupt controller devices information
+#
+# Since: 9.1
+##
+{ 'command': 'x-query-interrupt-controllers',
+  'returns': 'HumanReadableText',
+  'features': [ 'unstable' ]}

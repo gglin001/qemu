@@ -91,8 +91,10 @@ struct RISCVCPUConfig {
     bool ext_zhinx;
     bool ext_zhinxmin;
     bool ext_zve32f;
+    bool ext_zve32x;
     bool ext_zve64f;
     bool ext_zve64d;
+    bool ext_zve64x;
     bool ext_zvbb;
     bool ext_zvbc;
     bool ext_zvkb;
@@ -130,10 +132,13 @@ struct RISCVCPUConfig {
     bool ext_zic64b;
 
     /*
-     * Always 'true' boolean for named features
-     * TCG always implement/can't be disabled.
+     * Always 'true' booleans for named features
+     * TCG always implement/can't be user disabled,
+     * based on spec version.
      */
-    bool ext_always_enabled;
+    bool has_priv_1_13;
+    bool has_priv_1_12;
+    bool has_priv_1_11;
 
     /* Vendor-specific custom extensions */
     bool ext_xtheadba;

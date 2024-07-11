@@ -23,9 +23,6 @@
 #
 # @duplicate: number of duplicate (zero) pages (since 1.2)
 #
-# @skipped: number of skipped zero pages. Always zero, only provided for
-#     compatibility (since 1.5)
-#
 # @normal: number of normal pages (since 1.2)
 #
 # @normal-bytes: number of normal bytes sent (since 1.2)
@@ -63,17 +60,11 @@
 #     between 0 and @dirty-sync-count * @multifd-channels.  (since
 #     7.1)
 #
-# Features:
-#
-# @deprecated: Member @skipped is always zero since 1.5.3
-#
 # Since: 0.14
-#
 ##
 { 'struct': 'MigrationStats',
   'data': {'transferred': 'int', 'remaining': 'int', 'total': 'int' ,
            'duplicate': 'int',
-           'skipped': { 'type': 'int', 'features': [ 'deprecated' ] },
            'normal': 'int',
            'normal-bytes': 'int', 'dirty-pages-rate': 'int',
            'mbps': 'number', 'dirty-sync-count': 'int',
@@ -151,6 +142,9 @@
 #
 # @postcopy-paused: during postcopy but paused.  (since 3.0)
 #
+# @postcopy-recover-setup: setup phase for a postcopy recovery process,
+#     preparing for a recovery phase to start.  (since 9.1)
+#
 # @postcopy-recover: trying to recover from a paused postcopy.  (since
 #     3.0)
 #
@@ -175,6 +169,7 @@
 { 'enum': 'MigrationStatus',
   'data': [ 'none', 'setup', 'cancelling', 'cancelled',
             'active', 'postcopy-active', 'postcopy-paused',
+            'postcopy-recover-setup',
             'postcopy-recover', 'completed', 'failed', 'colo',
             'pre-switchover', 'device', 'wait-unplug' ] }
 ##
@@ -202,9 +197,6 @@
 # @ram: @MigrationStats containing detailed migration status, only
 #     returned if status is 'active' or 'completed'(since 1.2)
 #
-# @disk: @MigrationStats containing detailed disk migration status,
-#     only returned if status is 'active' and it is a block migration
-#
 # @xbzrle-cache: @XBZRLECacheStats containing detailed XBZRLE
 #     migration statistics, only returned if XBZRLE feature is on and
 #     status is 'active' or 'completed' (since 1.2)
@@ -230,7 +222,7 @@
 #     throttled during auto-converge.  This is only present when
 #     auto-converge has started throttling guest cpus.  (Since 2.7)
 #
-# @error-desc: the human readable error description string. Clients
+# @error-desc: the human readable error description string.  Clients
 #     should not attempt to parse the error strings.  (Since 2.7)
 #
 # @postcopy-blocktime: total time when all vCPU were blocked during
@@ -240,10 +232,6 @@
 # @postcopy-vcpu-blocktime: list of the postcopy blocktime per vCPU.
 #     This is only present when the postcopy-blocktime migration
 #     capability is enabled.  (Since 3.0)
-#
-# @compression: migration compression statistics, only returned if
-#     compression feature is on and status is 'active' or 'completed'
-#     (Since 3.1)
 #
 # @socket-address: Only used for tcp, to know what the real port is
 #     (Since 4.0)
@@ -269,19 +257,10 @@
 #     average memory load of the virtual CPU indirectly.  Note that
 #     zero means guest doesn't dirty memory.  (Since 8.1)
 #
-# Features:
-#
-# @deprecated: Member @disk is deprecated because block migration is.
-#     Member @compression is deprecated because it is unreliable and
-#     untested.  It is recommended to use multifd migration, which
-#     offers an alternative compression implementation that is
-#     reliable and tested.
-#
 # Since: 0.14
 ##
 { 'struct': 'MigrationInfo',
   'data': {'*status': 'MigrationStatus', '*ram': 'MigrationStats',
-           '*disk': { 'type': 'MigrationStats', 'features': [ 'deprecated' ] },
            '*vfio': 'VfioStats',
            '*xbzrle-cache': 'XBZRLECacheStats',
            '*total-time': 'int',
@@ -293,7 +272,6 @@
            '*blocked-reasons': ['str'],
            '*postcopy-blocktime': 'uint32',
            '*postcopy-vcpu-blocktime': ['uint32'],
-           '*compression': { 'type': 'CompressionStats', 'features': [ 'deprecated' ] },
            '*socket-address': ['SocketAddress'],
            '*dirty-limit-throttle-time-per-round': 'uint64',
            '*dirty-limit-ring-full-time': 'uint64'} }
@@ -303,8 +281,7 @@
 #
 # Returns information about current migration process.  If migration
 # is active there will be another json-object with RAM migration
-# status and if block migration is active another one with block
-# migration status.
+# status.
 #
 # Returns: @MigrationInfo
 #
@@ -342,7 +319,7 @@
 #     -> { "execute": "query-migrate" }
 #     <- { "return": { "status": "failed" } }
 #
-#     4. Migration is being performed and is not a block migration:
+#     4. Migration is being performed:
 #
 #     -> { "execute": "query-migrate" }
 #     <- {
@@ -363,33 +340,7 @@
 #           }
 #        }
 #
-#     5. Migration is being performed and is a block migration:
-#
-#     -> { "execute": "query-migrate" }
-#     <- {
-#           "return":{
-#              "status":"active",
-#              "total-time":12345,
-#              "setup-time":12345,
-#              "expected-downtime":12345,
-#              "ram":{
-#                 "total":1057024,
-#                 "remaining":1053304,
-#                 "transferred":3720,
-#                 "duplicate":123,
-#                 "normal":123,
-#                 "normal-bytes":123456,
-#                 "dirty-sync-count":15
-#              },
-#              "disk":{
-#                 "total":20971520,
-#                 "remaining":20880384,
-#                 "transferred":91136
-#              }
-#           }
-#        }
-#
-#     6. Migration is being performed and XBZRLE is active:
+#     5. Migration is being performed and XBZRLE is active:
 #
 #     -> { "execute": "query-migrate" }
 #     <- {
@@ -442,14 +393,6 @@
 #     capability on the source VM. The feature is disabled by default.
 #     (since 1.6)
 #
-# @compress: Use multiple compression threads to accelerate live
-#     migration.  This feature can help to reduce the migration
-#     traffic, by sending compressed pages.  Please note that if
-#     compress and xbzrle are both on, compress only takes effect in
-#     the ram bulk stage, after that, it will be disabled and only
-#     xbzrle takes effect, this can help to minimize migration
-#     traffic.  The feature is disabled by default.  (since 2.4)
-#
 # @events: generate events for each migration state change (since 2.4)
 #
 # @auto-converge: If enabled, QEMU will automatically throttle down
@@ -468,11 +411,6 @@
 #
 # @release-ram: if enabled, qemu will free the migrated ram pages on
 #     the source during postcopy-ram migration.  (since 2.9)
-#
-# @block: If enabled, QEMU will also migrate the contents of all block
-#     devices.  Default is disabled.  A possible alternative uses
-#     mirror jobs to a builtin NBD server on the destination, which
-#     offers more flexibility.  (Since 2.10)
 #
 # @return-path: If enabled, migration will use the return path even
 #     for precopy.  (since 2.10)
@@ -501,8 +439,8 @@
 #
 # @background-snapshot: If enabled, the migration stream will be a
 #     snapshot of the VM exactly at the point when the migration
-#     procedure starts.  The VM RAM is saved with running VM. (since
-#     6.0)
+#     procedure starts.  The VM RAM is saved with running VM.
+#     (since 6.0)
 #
 # @zero-copy-send: Controls behavior on sending memory pages on
 #     migration.  When true, enables a zero-copy mechanism for sending
@@ -537,23 +475,15 @@
 #
 # Features:
 #
-# @deprecated: Member @block is deprecated.  Use blockdev-mirror with
-#     NBD instead.  Member @compress is deprecated because it is
-#     unreliable and untested.  It is recommended to use multifd
-#     migration, which offers an alternative compression
-#     implementation that is reliable and tested.
-#
 # @unstable: Members @x-colo and @x-ignore-shared are experimental.
 #
 # Since: 1.2
 ##
 { 'enum': 'MigrationCapability',
   'data': ['xbzrle', 'rdma-pin-all', 'auto-converge', 'zero-blocks',
-           { 'name': 'compress', 'features': [ 'deprecated' ] },
            'events', 'postcopy-ram',
            { 'name': 'x-colo', 'features': [ 'unstable' ] },
            'release-ram',
-           { 'name': 'block', 'features': [ 'deprecated' ] },
            'return-path', 'pause-before-switchover', 'multifd',
            'dirty-bitmaps', 'postcopy-blocktime', 'late-block-activate',
            { 'name': 'x-ignore-shared', 'features': [ 'unstable' ] },
@@ -610,7 +540,6 @@
 #           {"state": false, "capability": "rdma-pin-all"},
 #           {"state": false, "capability": "auto-converge"},
 #           {"state": false, "capability": "zero-blocks"},
-#           {"state": false, "capability": "compress"},
 #           {"state": true, "capability": "events"},
 #           {"state": false, "capability": "postcopy-ram"},
 #           {"state": false, "capability": "x-colo"}
@@ -629,20 +558,29 @@
 #
 # @zstd: use zstd compression method.
 #
+# @qpl: use qpl compression method.  Query Processing Library(qpl) is
+#       based on the deflate compression algorithm and use the Intel
+#       In-Memory Analytics Accelerator(IAA) accelerated compression
+#       and decompression.  (Since 9.1)
+#
+# @uadk: use UADK library compression method.  (Since 9.1)
+#
 # Since: 5.0
 ##
 { 'enum': 'MultiFDCompression',
   'data': [ 'none', 'zlib',
-            { 'name': 'zstd', 'if': 'CONFIG_ZSTD' } ] }
+            { 'name': 'zstd', 'if': 'CONFIG_ZSTD' },
+            { 'name': 'qpl', 'if': 'CONFIG_QPL' },
+            { 'name': 'uadk', 'if': 'CONFIG_UADK' } ] }
 
 ##
 # @MigMode:
 #
-# @normal: the original form of migration. (since 8.2)
+# @normal: the original form of migration.  (since 8.2)
 #
-# @cpr-reboot: The migrate command stops the VM and saves state to
-#     the URI.  After quitting QEMU, the user resumes by running
-#     QEMU -incoming.
+# @cpr-reboot: The migrate command stops the VM and saves state to the
+#     URI.  After quitting QEMU, the user resumes by running QEMU
+#     -incoming.
 #
 #     This mode allows the user to quit QEMU, optionally update and
 #     reboot the OS, and restart QEMU.  If the user reboots, the URI
@@ -652,8 +590,8 @@
 #     does not block the migration, but the user must not modify the
 #     contents of guest block devices between the quit and restart.
 #
-#     This mode supports VFIO devices provided the user first puts
-#     the guest in the suspended runstate, such as by issuing
+#     This mode supports VFIO devices provided the user first puts the
+#     guest in the suspended runstate, such as by issuing
 #     guest-suspend-ram to the QEMU guest agent.
 #
 #     Best performance is achieved when the memory backend is shared
@@ -669,6 +607,22 @@
 ##
 { 'enum': 'MigMode',
   'data': [ 'normal', 'cpr-reboot' ] }
+
+##
+# @ZeroPageDetection:
+#
+# @none: Do not perform zero page checking.
+#
+# @legacy: Perform zero page checking in main migration thread.
+#
+# @multifd: Perform zero page checking in multifd sender thread if
+#     multifd migration is enabled, else in the main migration thread
+#     as for @legacy.
+#
+# Since: 9.0
+##
+{ 'enum': 'ZeroPageDetection',
+  'data': [ 'none', 'legacy', 'multifd' ] }
 
 ##
 # @BitmapMigrationBitmapAliasTransform:
@@ -742,38 +696,17 @@
 # @announce-step: Increase in delay (in milliseconds) between
 #     subsequent packets in the announcement (Since 4.0)
 #
-# @compress-level: Set the compression level to be used in live
-#     migration, the compression level is an integer between 0 and 9,
-#     where 0 means no compression, 1 means the best compression
-#     speed, and 9 means best compression ratio which will consume
-#     more CPU.
-#
-# @compress-threads: Set compression thread count to be used in live
-#     migration, the compression thread count is an integer between 1
-#     and 255.
-#
-# @compress-wait-thread: Controls behavior when all compression
-#     threads are currently busy.  If true (default), wait for a free
-#     compression thread to become available; otherwise, send the page
-#     uncompressed.  (Since 3.1)
-#
-# @decompress-threads: Set decompression thread count to be used in
-#     live migration, the decompression thread count is an integer
-#     between 1 and 255. Usually, decompression is at least 4 times as
-#     fast as compression, so set the decompress-threads to the number
-#     about 1/4 of compress-threads is adequate.
-#
 # @throttle-trigger-threshold: The ratio of bytes_dirty_period and
 #     bytes_xfer_period to trigger throttling.  It is expressed as
-#     percentage.  The default value is 50. (Since 5.0)
+#     percentage.  The default value is 50.  (Since 5.0)
 #
 # @cpu-throttle-initial: Initial percentage of time guest cpus are
 #     throttled when migration auto-converge is activated.  The
-#     default value is 20. (Since 2.7)
+#     default value is 20.  (Since 2.7)
 #
 # @cpu-throttle-increment: throttle percentage increase each time
 #     auto-converge detects that migration is not making progress.
-#     The default value is 10. (Since 2.7)
+#     The default value is 10.  (Since 2.7)
 #
 # @cpu-throttle-tailslow: Make CPU throttling slower at tail stage At
 #     the tail stage of throttling, the Guest is very sensitive to CPU
@@ -792,16 +725,19 @@
 #     for establishing a TLS connection over the migration data
 #     channel.  On the outgoing side of the migration, the credentials
 #     must be for a 'client' endpoint, while for the incoming side the
-#     credentials must be for a 'server' endpoint.  Setting this will
-#     enable TLS for all migrations.  The default is unset, resulting
-#     in unsecured migration at the QEMU level.  (Since 2.7)
+#     credentials must be for a 'server' endpoint.  Setting this to a
+#     non-empty string enables TLS for all migrations.  An empty
+#     string means that QEMU will use plain text mode for migration,
+#     rather than TLS.  (Since 2.7)
 #
-# @tls-hostname: hostname of the target host for the migration.  This
-#     is required when using x509 based TLS credentials and the
-#     migration URI does not already include a hostname.  For example
-#     if using fd: or exec: based migration, the hostname must be
-#     provided so that the server's x509 certificate identity can be
-#     validated.  (Since 2.7)
+# @tls-hostname: migration target's hostname for validating the
+#     server's x509 certificate identity.  If empty, QEMU will use the
+#     hostname from the migration URI, if any.  A non-empty value is
+#     required when using x509 based TLS credentials and the migration
+#     URI does not include a hostname, such as fd: or exec: based
+#     migration.  (Since 2.7)
+#
+#     Note: empty value works only since 2.9.
 #
 # @tls-authz: ID of the 'authz' object subclass that provides access
 #     control checking of the TLS x509 certificate distinguished name.
@@ -809,31 +745,25 @@
 #     and recreated on the fly while the migration server is active.
 #     If missing, it will default to denying access (Since 4.0)
 #
-# @max-bandwidth: to set maximum speed for migration.  maximum speed
-#     in bytes per second.  (Since 2.8)
+# @max-bandwidth: maximum speed for migration, in bytes per second.
+#     (Since 2.8)
 #
 # @avail-switchover-bandwidth: to set the available bandwidth that
 #     migration can use during switchover phase.  NOTE!  This does not
-#     limit the bandwidth during switchover, but only for calculations when
-#     making decisions to switchover.  By default, this value is zero,
-#     which means QEMU will estimate the bandwidth automatically.  This can
-#     be set when the estimated value is not accurate, while the user is
-#     able to guarantee such bandwidth is available when switching over.
-#     When specified correctly, this can make the switchover decision much
-#     more accurate.  (Since 8.2)
+#     limit the bandwidth during switchover, but only for calculations
+#     when making decisions to switchover.  By default, this value is
+#     zero, which means QEMU will estimate the bandwidth
+#     automatically.  This can be set when the estimated value is not
+#     accurate, while the user is able to guarantee such bandwidth is
+#     available when switching over.  When specified correctly, this
+#     can make the switchover decision much more accurate.
+#     (Since 8.2)
 #
 # @downtime-limit: set maximum tolerated downtime for migration.
 #     maximum downtime in milliseconds (Since 2.8)
 #
 # @x-checkpoint-delay: The delay time (in ms) between two COLO
 #     checkpoints in periodic mode.  (Since 2.8)
-#
-# @block-incremental: Affects how much storage is migrated when the
-#     block migration capability is enabled.  When false, the entire
-#     storage backing chain is migrated into a flattened image at the
-#     destination; when true, only the active qcow2 layer is migrated
-#     and the destination must already have access to the same backing
-#     chain as was used on the source.  (since 2.10)
 #
 # @multifd-channels: Number of channels used to migrate data in
 #     parallel.  This is the same number that the number of sockets
@@ -857,13 +787,13 @@
 #     migration, the compression level is an integer between 0 and 9,
 #     where 0 means no compression, 1 means the best compression
 #     speed, and 9 means best compression ratio which will consume
-#     more CPU. Defaults to 1. (Since 5.0)
+#     more CPU. Defaults to 1.  (Since 5.0)
 #
 # @multifd-zstd-level: Set the compression level to be used in live
 #     migration, the compression level is an integer between 0 and 20,
 #     where 0 means no compression, 1 means the best compression
 #     speed, and 20 means best compression ratio which will consume
-#     more CPU. Defaults to 1. (Since 5.0)
+#     more CPU. Defaults to 1.  (Since 5.0)
 #
 # @block-bitmap-mapping: Maps block nodes and bitmaps on them to
 #     aliases for the purpose of dirty bitmap migration.  Such aliases
@@ -882,41 +812,39 @@
 #     to their node name otherwise.  (Since 5.2)
 #
 # @x-vcpu-dirty-limit-period: Periodic time (in milliseconds) of dirty
-#     limit during live migration.  Should be in the range 1 to 1000ms.
-#     Defaults to 1000ms.  (Since 8.1)
+#     limit during live migration.  Should be in the range 1 to
+#     1000ms.  Defaults to 1000ms.  (Since 8.1)
 #
 # @vcpu-dirty-limit: Dirtyrate limit (MB/s) during live migration.
 #     Defaults to 1.  (Since 8.1)
 #
-# @mode: Migration mode. See description in @MigMode. Default is 'normal'.
-#        (Since 8.2)
+# @mode: Migration mode.  See description in @MigMode.  Default is
+#     'normal'.  (Since 8.2)
+#
+# @zero-page-detection: Whether and how to detect zero pages.
+#     See description in @ZeroPageDetection.  Default is 'multifd'.
+#     (since 9.0)
+#
+# @direct-io: Open migration files with O_DIRECT when possible.  This
+#     only has effect if the @mapped-ram capability is enabled.
+#     (Since 9.1)
 #
 # Features:
 #
-# @deprecated: Member @block-incremental is deprecated.  Use
-#     blockdev-mirror with NBD instead.  Members @compress-level,
-#     @compress-threads, @decompress-threads and @compress-wait-thread
-#     are deprecated because @compression is deprecated.
-#
-# @unstable: Members @x-checkpoint-delay and @x-vcpu-dirty-limit-period
-#     are experimental.
+# @unstable: Members @x-checkpoint-delay and
+#     @x-vcpu-dirty-limit-period are experimental.
 #
 # Since: 2.4
 ##
 { 'enum': 'MigrationParameter',
   'data': ['announce-initial', 'announce-max',
            'announce-rounds', 'announce-step',
-           { 'name': 'compress-level', 'features': [ 'deprecated' ] },
-           { 'name': 'compress-threads', 'features': [ 'deprecated' ] },
-           { 'name': 'decompress-threads', 'features': [ 'deprecated' ] },
-           { 'name': 'compress-wait-thread', 'features': [ 'deprecated' ] },
            'throttle-trigger-threshold',
            'cpu-throttle-initial', 'cpu-throttle-increment',
            'cpu-throttle-tailslow',
            'tls-creds', 'tls-hostname', 'tls-authz', 'max-bandwidth',
            'avail-switchover-bandwidth', 'downtime-limit',
            { 'name': 'x-checkpoint-delay', 'features': [ 'unstable' ] },
-           { 'name': 'block-incremental', 'features': [ 'deprecated' ] },
            'multifd-channels',
            'xbzrle-cache-size', 'max-postcopy-bandwidth',
            'max-cpu-throttle', 'multifd-compression',
@@ -924,7 +852,9 @@
            'block-bitmap-mapping',
            { 'name': 'x-vcpu-dirty-limit-period', 'features': ['unstable'] },
            'vcpu-dirty-limit',
-           'mode'] }
+           'mode',
+           'zero-page-detection',
+           'direct-io'] }
 
 ##
 # @MigrateSetParameters:
@@ -941,28 +871,17 @@
 # @announce-step: Increase in delay (in milliseconds) between
 #     subsequent packets in the announcement (Since 4.0)
 #
-# @compress-level: compression level
-#
-# @compress-threads: compression thread count
-#
-# @compress-wait-thread: Controls behavior when all compression
-#     threads are currently busy.  If true (default), wait for a free
-#     compression thread to become available; otherwise, send the page
-#     uncompressed.  (Since 3.1)
-#
-# @decompress-threads: decompression thread count
-#
 # @throttle-trigger-threshold: The ratio of bytes_dirty_period and
 #     bytes_xfer_period to trigger throttling.  It is expressed as
-#     percentage.  The default value is 50. (Since 5.0)
+#     percentage.  The default value is 50.  (Since 5.0)
 #
 # @cpu-throttle-initial: Initial percentage of time guest cpus are
 #     throttled when migration auto-converge is activated.  The
-#     default value is 20. (Since 2.7)
+#     default value is 20.  (Since 2.7)
 #
 # @cpu-throttle-increment: throttle percentage increase each time
 #     auto-converge detects that migration is not making progress.
-#     The default value is 10. (Since 2.7)
+#     The default value is 10.  (Since 2.7)
 #
 # @cpu-throttle-tailslow: Make CPU throttling slower at tail stage At
 #     the tail stage of throttling, the Guest is very sensitive to CPU
@@ -984,48 +903,42 @@
 #     credentials must be for a 'server' endpoint.  Setting this to a
 #     non-empty string enables TLS for all migrations.  An empty
 #     string means that QEMU will use plain text mode for migration,
-#     rather than TLS (Since 2.9) Previously (since 2.7), this was
-#     reported by omitting tls-creds instead.
+#     rather than TLS.  This is the default.  (Since 2.7)
 #
-# @tls-hostname: hostname of the target host for the migration.  This
-#     is required when using x509 based TLS credentials and the
-#     migration URI does not already include a hostname.  For example
-#     if using fd: or exec: based migration, the hostname must be
-#     provided so that the server's x509 certificate identity can be
-#     validated.  (Since 2.7) An empty string means that QEMU will use
-#     the hostname associated with the migration URI, if any.  (Since
-#     2.9) Previously (since 2.7), this was reported by omitting
-#     tls-hostname instead.
+# @tls-hostname: migration target's hostname for validating the
+#     server's x509 certificate identity.  If empty, QEMU will use the
+#     hostname from the migration URI, if any.  A non-empty value is
+#     required when using x509 based TLS credentials and the migration
+#     URI does not include a hostname, such as fd: or exec: based
+#     migration.  (Since 2.7)
+#
+#     Note: empty value works only since 2.9.
 #
 # @tls-authz: ID of the 'authz' object subclass that provides access
 #     control checking of the TLS x509 certificate distinguished name.
-#     (Since 4.0)
+#     This object is only resolved at time of use, so can be deleted
+#     and recreated on the fly while the migration server is active.
+#     If missing, it will default to denying access (Since 4.0)
 #
-# @max-bandwidth: to set maximum speed for migration.  maximum speed
-#     in bytes per second.  (Since 2.8)
+# @max-bandwidth: maximum speed for migration, in bytes per second.
+#     (Since 2.8)
 #
 # @avail-switchover-bandwidth: to set the available bandwidth that
 #     migration can use during switchover phase.  NOTE!  This does not
-#     limit the bandwidth during switchover, but only for calculations when
-#     making decisions to switchover.  By default, this value is zero,
-#     which means QEMU will estimate the bandwidth automatically.  This can
-#     be set when the estimated value is not accurate, while the user is
-#     able to guarantee such bandwidth is available when switching over.
-#     When specified correctly, this can make the switchover decision much
-#     more accurate.  (Since 8.2)
+#     limit the bandwidth during switchover, but only for calculations
+#     when making decisions to switchover.  By default, this value is
+#     zero, which means QEMU will estimate the bandwidth
+#     automatically.  This can be set when the estimated value is not
+#     accurate, while the user is able to guarantee such bandwidth is
+#     available when switching over.  When specified correctly, this
+#     can make the switchover decision much more accurate.
+#     (Since 8.2)
 #
 # @downtime-limit: set maximum tolerated downtime for migration.
 #     maximum downtime in milliseconds (Since 2.8)
 #
-# @x-checkpoint-delay: the delay time between two COLO checkpoints.
-#     (Since 2.8)
-#
-# @block-incremental: Affects how much storage is migrated when the
-#     block migration capability is enabled.  When false, the entire
-#     storage backing chain is migrated into a flattened image at the
-#     destination; when true, only the active qcow2 layer is migrated
-#     and the destination must already have access to the same backing
-#     chain as was used on the source.  (since 2.10)
+# @x-checkpoint-delay: The delay time (in ms) between two COLO
+#     checkpoints in periodic mode.  (Since 2.8)
 #
 # @multifd-channels: Number of channels used to migrate data in
 #     parallel.  This is the same number that the number of sockets
@@ -1039,8 +952,8 @@
 #     postcopy.  Defaults to 0 (unlimited).  In bytes per second.
 #     (Since 3.0)
 #
-# @max-cpu-throttle: maximum cpu throttle percentage.  The default
-#     value is 99. (Since 3.1)
+# @max-cpu-throttle: maximum cpu throttle percentage.  Defaults to 99.
+#     (Since 3.1)
 #
 # @multifd-compression: Which compression method to use.  Defaults to
 #     none.  (Since 5.0)
@@ -1049,13 +962,13 @@
 #     migration, the compression level is an integer between 0 and 9,
 #     where 0 means no compression, 1 means the best compression
 #     speed, and 9 means best compression ratio which will consume
-#     more CPU. Defaults to 1. (Since 5.0)
+#     more CPU. Defaults to 1.  (Since 5.0)
 #
 # @multifd-zstd-level: Set the compression level to be used in live
 #     migration, the compression level is an integer between 0 and 20,
 #     where 0 means no compression, 1 means the best compression
 #     speed, and 20 means best compression ratio which will consume
-#     more CPU. Defaults to 1. (Since 5.0)
+#     more CPU. Defaults to 1.  (Since 5.0)
 #
 # @block-bitmap-mapping: Maps block nodes and bitmaps on them to
 #     aliases for the purpose of dirty bitmap migration.  Such aliases
@@ -1074,24 +987,27 @@
 #     to their node name otherwise.  (Since 5.2)
 #
 # @x-vcpu-dirty-limit-period: Periodic time (in milliseconds) of dirty
-#     limit during live migration.  Should be in the range 1 to 1000ms.
-#     Defaults to 1000ms.  (Since 8.1)
+#     limit during live migration.  Should be in the range 1 to
+#     1000ms.  Defaults to 1000ms.  (Since 8.1)
 #
 # @vcpu-dirty-limit: Dirtyrate limit (MB/s) during live migration.
 #     Defaults to 1.  (Since 8.1)
 #
-# @mode: Migration mode. See description in @MigMode. Default is 'normal'.
-#        (Since 8.2)
+# @mode: Migration mode.  See description in @MigMode.  Default is
+#     'normal'.  (Since 8.2)
+#
+# @zero-page-detection: Whether and how to detect zero pages.
+#     See description in @ZeroPageDetection.  Default is 'multifd'.
+#     (since 9.0)
+#
+# @direct-io: Open migration files with O_DIRECT when possible.  This
+#     only has effect if the @mapped-ram capability is enabled.
+#     (Since 9.1)
 #
 # Features:
 #
-# @deprecated: Member @block-incremental is deprecated.  Use
-#     blockdev-mirror with NBD instead.  Members @compress-level,
-#     @compress-threads, @decompress-threads and @compress-wait-thread
-#     are deprecated because @compression is deprecated.
-#
-# @unstable: Members @x-checkpoint-delay and @x-vcpu-dirty-limit-period
-#     are experimental.
+# @unstable: Members @x-checkpoint-delay and
+#     @x-vcpu-dirty-limit-period are experimental.
 #
 # TODO: either fuse back into MigrationParameters, or make
 #     MigrationParameters members mandatory
@@ -1103,14 +1019,6 @@
             '*announce-max': 'size',
             '*announce-rounds': 'size',
             '*announce-step': 'size',
-            '*compress-level': { 'type': 'uint8',
-                                 'features': [ 'deprecated' ] },
-            '*compress-threads':  { 'type': 'uint8',
-                                    'features': [ 'deprecated' ] },
-            '*compress-wait-thread':  { 'type': 'bool',
-                                        'features': [ 'deprecated' ] },
-            '*decompress-threads':  { 'type': 'uint8',
-                                      'features': [ 'deprecated' ] },
             '*throttle-trigger-threshold': 'uint8',
             '*cpu-throttle-initial': 'uint8',
             '*cpu-throttle-increment': 'uint8',
@@ -1123,8 +1031,6 @@
             '*downtime-limit': 'uint64',
             '*x-checkpoint-delay': { 'type': 'uint32',
                                      'features': [ 'unstable' ] },
-            '*block-incremental': { 'type': 'bool',
-                                    'features': [ 'deprecated' ] },
             '*multifd-channels': 'uint8',
             '*xbzrle-cache-size': 'size',
             '*max-postcopy-bandwidth': 'size',
@@ -1136,7 +1042,9 @@
             '*x-vcpu-dirty-limit-period': { 'type': 'uint64',
                                             'features': [ 'unstable' ] },
             '*vcpu-dirty-limit': 'uint64',
-            '*mode': 'MigMode'} }
+            '*mode': 'MigMode',
+            '*zero-page-detection': 'ZeroPageDetection',
+            '*direct-io': 'bool' } }
 
 ##
 # @migrate-set-parameters:
@@ -1171,20 +1079,9 @@
 # @announce-step: Increase in delay (in milliseconds) between
 #     subsequent packets in the announcement (Since 4.0)
 #
-# @compress-level: compression level
-#
-# @compress-threads: compression thread count
-#
-# @compress-wait-thread: Controls behavior when all compression
-#     threads are currently busy.  If true (default), wait for a free
-#     compression thread to become available; otherwise, send the page
-#     uncompressed.  (Since 3.1)
-#
-# @decompress-threads: decompression thread count
-#
 # @throttle-trigger-threshold: The ratio of bytes_dirty_period and
 #     bytes_xfer_period to trigger throttling.  It is expressed as
-#     percentage.  The default value is 50. (Since 5.0)
+#     percentage.  The default value is 50.  (Since 5.0)
 #
 # @cpu-throttle-initial: Initial percentage of time guest cpus are
 #     throttled when migration auto-converge is activated.  (Since
@@ -1213,47 +1110,39 @@
 #     must be for a 'client' endpoint, while for the incoming side the
 #     credentials must be for a 'server' endpoint.  An empty string
 #     means that QEMU will use plain text mode for migration, rather
-#     than TLS (Since 2.7) Note: 2.8 reports this by omitting
-#     tls-creds instead.
+#     than TLS.  (Since 2.7)
 #
-# @tls-hostname: hostname of the target host for the migration.  This
-#     is required when using x509 based TLS credentials and the
-#     migration URI does not already include a hostname.  For example
-#     if using fd: or exec: based migration, the hostname must be
-#     provided so that the server's x509 certificate identity can be
-#     validated.  (Since 2.7) An empty string means that QEMU will use
-#     the hostname associated with the migration URI, if any.  (Since
-#     2.9) Note: 2.8 reports this by omitting tls-hostname instead.
+#     Note: 2.8 omits empty @tls-creds instead.
+#
+# @tls-hostname: migration target's hostname for validating the
+#     server's x509 certificate identity.  If empty, QEMU will use the
+#     hostname from the migration URI, if any.  (Since 2.7)
+#
+#     Note: 2.8 omits empty @tls-hostname instead.
 #
 # @tls-authz: ID of the 'authz' object subclass that provides access
 #     control checking of the TLS x509 certificate distinguished name.
 #     (Since 4.0)
 #
-# @max-bandwidth: to set maximum speed for migration.  maximum speed
-#     in bytes per second.  (Since 2.8)
+# @max-bandwidth: maximum speed for migration, in bytes per second.
+#     (Since 2.8)
 #
 # @avail-switchover-bandwidth: to set the available bandwidth that
 #     migration can use during switchover phase.  NOTE!  This does not
-#     limit the bandwidth during switchover, but only for calculations when
-#     making decisions to switchover.  By default, this value is zero,
-#     which means QEMU will estimate the bandwidth automatically.  This can
-#     be set when the estimated value is not accurate, while the user is
-#     able to guarantee such bandwidth is available when switching over.
-#     When specified correctly, this can make the switchover decision much
-#     more accurate.  (Since 8.2)
+#     limit the bandwidth during switchover, but only for calculations
+#     when making decisions to switchover.  By default, this value is
+#     zero, which means QEMU will estimate the bandwidth
+#     automatically.  This can be set when the estimated value is not
+#     accurate, while the user is able to guarantee such bandwidth is
+#     available when switching over.  When specified correctly, this
+#     can make the switchover decision much more accurate.
+#     (Since 8.2)
 #
 # @downtime-limit: set maximum tolerated downtime for migration.
 #     maximum downtime in milliseconds (Since 2.8)
 #
 # @x-checkpoint-delay: the delay time between two COLO checkpoints.
 #     (Since 2.8)
-#
-# @block-incremental: Affects how much storage is migrated when the
-#     block migration capability is enabled.  When false, the entire
-#     storage backing chain is migrated into a flattened image at the
-#     destination; when true, only the active qcow2 layer is migrated
-#     and the destination must already have access to the same backing
-#     chain as was used on the source.  (since 2.10)
 #
 # @multifd-channels: Number of channels used to migrate data in
 #     parallel.  This is the same number that the number of sockets
@@ -1277,13 +1166,13 @@
 #     migration, the compression level is an integer between 0 and 9,
 #     where 0 means no compression, 1 means the best compression
 #     speed, and 9 means best compression ratio which will consume
-#     more CPU. Defaults to 1. (Since 5.0)
+#     more CPU. Defaults to 1.  (Since 5.0)
 #
 # @multifd-zstd-level: Set the compression level to be used in live
 #     migration, the compression level is an integer between 0 and 20,
 #     where 0 means no compression, 1 means the best compression
 #     speed, and 20 means best compression ratio which will consume
-#     more CPU. Defaults to 1. (Since 5.0)
+#     more CPU. Defaults to 1.  (Since 5.0)
 #
 # @block-bitmap-mapping: Maps block nodes and bitmaps on them to
 #     aliases for the purpose of dirty bitmap migration.  Such aliases
@@ -1302,24 +1191,27 @@
 #     to their node name otherwise.  (Since 5.2)
 #
 # @x-vcpu-dirty-limit-period: Periodic time (in milliseconds) of dirty
-#     limit during live migration.  Should be in the range 1 to 1000ms.
-#     Defaults to 1000ms.  (Since 8.1)
+#     limit during live migration.  Should be in the range 1 to
+#     1000ms.  Defaults to 1000ms.  (Since 8.1)
 #
 # @vcpu-dirty-limit: Dirtyrate limit (MB/s) during live migration.
 #     Defaults to 1.  (Since 8.1)
 #
-# @mode: Migration mode. See description in @MigMode. Default is 'normal'.
-#        (Since 8.2)
+# @mode: Migration mode.  See description in @MigMode.  Default is
+#        'normal'.  (Since 8.2)
+#
+# @zero-page-detection: Whether and how to detect zero pages.
+#     See description in @ZeroPageDetection.  Default is 'multifd'.
+#     (since 9.0)
+#
+# @direct-io: Open migration files with O_DIRECT when possible.  This
+#     only has effect if the @mapped-ram capability is enabled.
+#     (Since 9.1)
 #
 # Features:
 #
-# @deprecated: Member @block-incremental is deprecated.  Use
-#     blockdev-mirror with NBD instead.  Members @compress-level,
-#     @compress-threads, @decompress-threads and @compress-wait-thread
-#     are deprecated because @compression is deprecated.
-#
-# @unstable: Members @x-checkpoint-delay and @x-vcpu-dirty-limit-period
-#     are experimental.
+# @unstable: Members @x-checkpoint-delay and
+#     @x-vcpu-dirty-limit-period are experimental.
 #
 # Since: 2.4
 ##
@@ -1328,14 +1220,6 @@
             '*announce-max': 'size',
             '*announce-rounds': 'size',
             '*announce-step': 'size',
-            '*compress-level': { 'type': 'uint8',
-                                 'features': [ 'deprecated' ] },
-            '*compress-threads': { 'type': 'uint8',
-                                   'features': [ 'deprecated' ] },
-            '*compress-wait-thread': { 'type': 'bool',
-                                       'features': [ 'deprecated' ] },
-            '*decompress-threads': { 'type': 'uint8',
-                                     'features': [ 'deprecated' ] },
             '*throttle-trigger-threshold': 'uint8',
             '*cpu-throttle-initial': 'uint8',
             '*cpu-throttle-increment': 'uint8',
@@ -1348,8 +1232,6 @@
             '*downtime-limit': 'uint64',
             '*x-checkpoint-delay': { 'type': 'uint32',
                                      'features': [ 'unstable' ] },
-            '*block-incremental': { 'type': 'bool',
-                                    'features': [ 'deprecated' ] },
             '*multifd-channels': 'uint8',
             '*xbzrle-cache-size': 'size',
             '*max-postcopy-bandwidth': 'size',
@@ -1361,7 +1243,9 @@
             '*x-vcpu-dirty-limit-period': { 'type': 'uint64',
                                             'features': [ 'unstable' ] },
             '*vcpu-dirty-limit': 'uint64',
-            '*mode': 'MigMode'} }
+            '*mode': 'MigMode',
+            '*zero-page-detection': 'ZeroPageDetection',
+            '*direct-io': 'bool' } }
 
 ##
 # @query-migrate-parameters:
@@ -1572,8 +1456,8 @@
 #
 # Cancel the current executing migration process.
 #
-# Notes: This command succeeds even if there is no migration process
-#     running.
+# .. note:: This command succeeds even if there is no migration process
+#    running.
 #
 # Since: 0.14
 #
@@ -1698,39 +1582,30 @@
 # @channels: list of migration stream channels with each stream in the
 #     list connected to a destination interface endpoint.
 #
-# @blk: do block migration (full disk copy)
-#
-# @inc: incremental disk copy migration
-#
 # @detach: this argument exists only for compatibility reasons and is
 #     ignored by QEMU
 #
-# @resume: resume one paused migration, default "off". (since 3.0)
-#
-# Features:
-#
-# @deprecated: Members @inc and @blk are deprecated.  Use
-#     blockdev-mirror with NBD instead.
+# @resume: resume one paused migration, default "off".  (since 3.0)
 #
 # Since: 0.14
 #
-# Notes:
+# .. admonition:: Notes
 #
 #     1. The 'query-migrate' command should be used to check
 #        migration's progress and final result (this information is
-#        provided by the 'status' member)
+#        provided by the 'status' member).
 #
-#     2. All boolean arguments default to false
+#     2. All boolean arguments default to false.
 #
 #     3. The user Monitor's "detach" argument is invalid in QMP and
-#        should not be used
+#        should not be used.
 #
 #     4. The uri argument should have the Uniform Resource Identifier
 #        of default destination VM. This connection will be bound to
 #        default network.
 #
 #     5. For now, number of migration streams is restricted to one,
-#        i.e number of items in 'channels' list is just 1.
+#        i.e. number of items in 'channels' list is just 1.
 #
 #     6. The 'uri' and 'channels' arguments are mutually exclusive;
 #        exactly one of the two should be present.
@@ -1777,8 +1652,6 @@
 { 'command': 'migrate',
   'data': {'*uri': 'str',
            '*channels': [ 'MigrationChannel' ],
-           '*blk': { 'type': 'bool', 'features': [ 'deprecated' ] },
-           '*inc': { 'type': 'bool', 'features': [ 'deprecated' ] },
            '*detach': 'bool', '*resume': 'bool' } }
 
 ##
@@ -1793,9 +1666,13 @@
 # @channels: list of migration stream channels with each stream in the
 #     list connected to a destination interface endpoint.
 #
+# @exit-on-error: Exit on incoming migration failure.  Default true.
+#     When set to false, the failure triggers a MIGRATION event, and
+#     error details could be retrieved with query-migrate.  (since 9.1)
+#
 # Since: 2.3
 #
-# Notes:
+# .. admonition:: Notes
 #
 #     1. It's a bad idea to use a string for the uri, but it needs to
 #        stay compatible with -incoming and the format of the uri is
@@ -1807,7 +1684,7 @@
 #     3. The uri format is the same as for -incoming
 #
 #     4. For now, number of migration streams is restricted to one,
-#        i.e number of items in 'channels' list is just 1.
+#        i.e. number of items in 'channels' list is just 1.
 #
 #     5. The 'uri' and 'channels' arguments are mutually exclusive;
 #        exactly one of the two should be present.
@@ -1845,7 +1722,8 @@
 ##
 { 'command': 'migrate-incoming',
              'data': {'*uri': 'str',
-                      '*channels': [ 'MigrationChannel' ] } }
+                      '*channels': [ 'MigrationChannel' ],
+                      '*exit-on-error': 'bool' } }
 
 ##
 # @xen-save-devices-state:
@@ -1917,8 +1795,8 @@
 #
 # @primary: true for primary or false for secondary.
 #
-# @failover: true to do failover, false to stop.  but cannot be
-#     specified if 'enable' is true.  default value is false.
+# @failover: true to do failover, false to stop.  Cannot be specified
+#     if 'enable' is true.  Default value is false.
 #
 # Example:
 #
@@ -2131,7 +2009,6 @@
 # @millisecond: value is in milliseconds
 #
 # Since: 8.2
-#
 ##
 { 'enum': 'TimeUnit',
   'data': ['second', 'millisecond'] }
@@ -2213,7 +2090,7 @@
 #     will not increase dirty page rate anymore.
 #
 # @calc-time-unit: time unit in which @calc-time is specified.
-#     By default it is seconds. (Since 8.2)
+#     By default it is seconds.  (Since 8.2)
 #
 # @sample-pages: number of sampled pages per each GiB of guest memory.
 #     Default value is 512.  For 4KiB guest pages this corresponds to
@@ -2229,7 +2106,7 @@
 # Example:
 #
 #     -> {"execute": "calc-dirty-rate", "arguments": {"calc-time": 1,
-#                                                     'sample-pages': 512} }
+#                                                     "sample-pages": 512} }
 #     <- { "return": {} }
 #
 #     Measure dirty rate using dirty bitmap for 500 milliseconds:
@@ -2250,7 +2127,7 @@
 # Query results of the most recent invocation of @calc-dirty-rate.
 #
 # @calc-time-unit: time unit in which to report calculation time.
-#     By default it is reported in seconds. (Since 8.2)
+#     By default it is reported in seconds.  (Since 8.2)
 #
 # Since: 5.2
 #
@@ -2376,9 +2253,7 @@
 #
 # Returns information of migration threads
 #
-# data: migration thread name
-#
-# Returns: information about migration threads
+# Returns: @MigrationThreadInfo
 #
 # Since: 7.2
 ##

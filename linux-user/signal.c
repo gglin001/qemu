@@ -19,6 +19,7 @@
 #include "qemu/osdep.h"
 #include "qemu/bitops.h"
 #include "gdbstub/user.h"
+#include "exec/page-protection.h"
 #include "hw/core/tcg-cpu-ops.h"
 
 #include <sys/ucontext.h>
@@ -33,6 +34,9 @@
 #include "host-signal.h"
 #include "user/safe-syscall.h"
 #include "tcg/tcg.h"
+
+/* target_siginfo_t must fit in gdbstub's siginfo save area. */
+QEMU_BUILD_BUG_ON(sizeof(target_siginfo_t) > MAX_SIGINFO_LENGTH);
 
 static struct target_sigaction sigact_table[TARGET_NSIG];
 
@@ -409,8 +413,8 @@ static inline void host_to_target_siginfo_noswap(target_siginfo_t *tinfo,
     tinfo->si_code = deposit32(si_code, 16, 16, si_type);
 }
 
-void tswap_siginfo(target_siginfo_t *tinfo,
-                   const target_siginfo_t *info)
+static void tswap_siginfo(target_siginfo_t *tinfo,
+                          const target_siginfo_t *info)
 {
     int si_type = extract32(info->si_code, 16, 16);
     int si_code = sextract32(info->si_code, 0, 16);
@@ -623,7 +627,6 @@ void signal_init(void)
 void force_sig(int sig)
 {
     CPUState *cpu = thread_cpu;
-    CPUArchState *env = cpu_env(cpu);
     target_siginfo_t info = {};
 
     info.si_signo = sig;
@@ -631,7 +634,7 @@ void force_sig(int sig)
     info.si_code = TARGET_SI_KERNEL;
     info._sifields._kill._pid = 0;
     info._sifields._kill._uid = 0;
-    queue_signal(env, info.si_signo, QEMU_SI_KILL, &info);
+    queue_signal(cpu_env(cpu), info.si_signo, QEMU_SI_KILL, &info);
 }
 
 /*
@@ -641,14 +644,13 @@ void force_sig(int sig)
 void force_sig_fault(int sig, int code, abi_ulong addr)
 {
     CPUState *cpu = thread_cpu;
-    CPUArchState *env = cpu_env(cpu);
     target_siginfo_t info = {};
 
     info.si_signo = sig;
     info.si_errno = 0;
     info.si_code = code;
     info._sifields._sigfault._addr = addr;
-    queue_signal(env, sig, QEMU_SI_FAULT, &info);
+    queue_signal(cpu_env(cpu), sig, QEMU_SI_FAULT, &info);
 }
 
 /* Force a SIGSEGV if we couldn't write to memory trying to set
@@ -1172,6 +1174,7 @@ static void handle_pending_signal(CPUArchState *cpu_env, int sig,
     CPUState *cpu = env_cpu(cpu_env);
     abi_ulong handler;
     sigset_t set;
+    target_siginfo_t unswapped;
     target_sigset_t target_old_set;
     struct target_sigaction *sa;
     TaskState *ts = get_task_state(cpu);
@@ -1180,7 +1183,18 @@ static void handle_pending_signal(CPUArchState *cpu_env, int sig,
     /* dequeue signal */
     k->pending = 0;
 
-    sig = gdb_handlesig(cpu, sig);
+    /*
+     * Writes out siginfo values byteswapped, accordingly to the target.
+     * It also cleans the si_type from si_code making it correct for
+     * the target.  We must hold on to the original unswapped copy for
+     * strace below, because si_type is still required there.
+     */
+    if (unlikely(qemu_loglevel_mask(LOG_STRACE))) {
+        unswapped = k->info;
+    }
+    tswap_siginfo(&k->info, &k->info);
+
+    sig = gdb_handlesig(cpu, sig, NULL, &k->info, sizeof(k->info));
     if (!sig) {
         sa = NULL;
         handler = TARGET_SIG_IGN;
@@ -1190,7 +1204,7 @@ static void handle_pending_signal(CPUArchState *cpu_env, int sig,
     }
 
     if (unlikely(qemu_loglevel_mask(LOG_STRACE))) {
-        print_taken_signal(sig, &k->info);
+        print_taken_signal(sig, &unswapped);
     }
 
     if (handler == TARGET_SIG_DFL) {
